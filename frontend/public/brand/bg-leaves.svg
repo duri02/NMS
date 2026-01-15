@@ -1,0 +1,25 @@
+<svg xmlns="http://www.w3.org/2000/svg" width="900" height="900" viewBox="0 0 900 900">
+  <defs>
+    <linearGradient id="grad" x1="0" y1="0" x2="1" y2="1">
+      <stop offset="0" stop-color="#009fe3" stop-opacity="0.22"/>
+      <stop offset="1" stop-color="#95c11f" stop-opacity="0.22"/>
+    </linearGradient>
+    <path id="leaf" d="M50 0 C80 18 95 55 72 85 C60 100 40 100 28 85 C5 55 20 18 50 0 Z"/>
+  </defs>
+
+  <rect width="900" height="900" fill="none"/>
+
+  <g fill="url(#grad)" opacity="0.16">
+    <use href="#leaf" transform="translate(70 80) rotate(12) scale(1.2)"/>
+    <use href="#leaf" transform="translate(360 60) rotate(38) scale(0.9)"/>
+    <use href="#leaf" transform="translate(660 120) rotate(-10) scale(1.1)"/>
+
+    <use href="#leaf" transform="translate(120 420) rotate(-22) scale(1.0)"/>
+    <use href="#leaf" transform="translate(500 380) rotate(18) scale(1.25)"/>
+    <use href="#leaf" transform="translate(740 430) rotate(44) scale(0.95)"/>
+
+    <use href="#leaf" transform="translate(90 720) rotate(30) scale(1.1)"/>
+    <use href="#leaf" transform="translate(420 700) rotate(-8) scale(0.85)"/>
+    <use href="#leaf" transform="translate(690 730) rotate(-35) scale(1.2)"/>
+  </g>
+</svg>

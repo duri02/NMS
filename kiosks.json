@@ -1,0 +1,12 @@
+{
+  "KIOSK_001": {
+    "token": "1234",
+    "location": "Cali - Sede 1",
+    "name": "Kiosco 1"
+  },
+  "KIOSK_002": {
+    "token": "CHANGE_ME_TOKEN_002",
+    "location": "Cali - Sede 2",
+    "name": "Kiosco 2"
+  }
+}
