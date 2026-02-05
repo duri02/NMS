@@ -301,3 +301,38 @@ button.secondary{
   background: rgba(255,255,255,.92);
   box-shadow: 0 16px 36px rgba(2,6,23,.07);
 }
+
+.voicePanel{
+  margin-top: 12px;
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  flex-wrap: wrap;
+}
+.voiceBtn{
+  min-width: 150px;
+  min-height: 52px;
+  font-size: 18px;
+  font-weight: 800;
+}
+.voiceBtn.recording{
+  background: linear-gradient(135deg, #dc2626 0%, #b91c1c 100%);
+}
+.voiceMeta{
+  display:flex;
+  align-items:center;
+  gap: 10px;
+  font-size: 12px;
+  color: var(--muted);
+}
+.msgSource{
+  margin-top: 8px;
+  font-size: 11px;
+  text-transform: uppercase;
+  opacity: .7;
+}
+.chatlog{
+  max-height: 420px;
+  overflow-y: auto;
+  padding-right: 4px;
+}
