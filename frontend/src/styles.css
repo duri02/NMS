@@ -336,3 +336,28 @@ button.secondary{
   overflow-y: auto;
   padding-right: 4px;
 }
+.voiceDiag{
+  display:flex;
+  gap: 8px;
+  flex-wrap: wrap;
+}
+.diagPill{
+  display:inline-flex;
+  align-items:center;
+  border:1px solid rgba(47,82,152,.25);
+  background: rgba(47,82,152,.08);
+  color: var(--brand);
+  border-radius: 999px;
+  padding: 4px 8px;
+  font-size: 11px;
+}
+.diagPill.ok{
+  border-color: rgba(22,163,74,.35);
+  background: rgba(22,163,74,.10);
+  color: #166534;
+}
+.diagPill.warn{
+  border-color: rgba(185,28,28,.35);
+  background: rgba(185,28,28,.10);
+  color: #991b1b;
+}

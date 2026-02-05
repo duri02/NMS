@@ -46,8 +46,8 @@ uvicorn app.main:app --host 0.0.0.0 --port 8000
 - `GET /terms` (términos con versión)
 - `GET /health` (health JSON-safe)
 - `POST /chat` (RAG texto)
-- `POST /api/voice/turn` (turno de voz STT + chat + TTS)
-- `POST /api/tts` (solo TTS)
+- `POST /api/voice/turn` (turno de voz STT + chat + TTS, compat: `/voice/turn`)
+- `POST /api/tts` (solo TTS, compat: `/tts`)
 
 ### Auth por kiosco
 Headers requeridos (si `REQUIRE_KIOSK_AUTH=true`):
@@ -108,7 +108,7 @@ curl -X POST "http://localhost:8000/api/voice/turn" \
   -H "X-Kiosk-Token: tu_token" \
   -F "include_audio=true" \
   -F "top_k=5" \
-  -F "file=@sample.wav"
+  -F "audio=@sample.wav"
 ```
 
 ### B) JSON base64

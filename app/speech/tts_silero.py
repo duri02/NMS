@@ -1,12 +1,25 @@
 from __future__ import annotations
 
-import audioop
 from typing import List
 
 import numpy as np
 import torch
 
 from .audio_utils import pcm16_to_wav_bytes
+
+
+def _resample_float32(samples: np.ndarray, src_rate: int, dst_rate: int) -> np.ndarray:
+    if src_rate == dst_rate or samples.size == 0:
+        return samples
+
+    src_len = samples.shape[0]
+    dst_len = int(round(src_len * (dst_rate / src_rate)))
+    if dst_len <= 0:
+        return np.zeros((0,), dtype=np.float32)
+
+    x_old = np.linspace(0.0, 1.0, num=src_len, endpoint=False)
+    x_new = np.linspace(0.0, 1.0, num=dst_len, endpoint=False)
+    return np.interp(x_new, x_old, samples).astype(np.float32)
 
 
 class SileroTTS:
@@ -50,12 +63,10 @@ class SileroTTS:
         return chunks
 
     def _tensor_to_pcm16(self, tensor: torch.Tensor, source_sr: int = 48000) -> bytes:
-        arr = tensor.detach().cpu().numpy().astype(np.float32)
-        arr = np.clip(arr, -1.0, 1.0)
-        pcm16 = (arr * 32767.0).astype(np.int16).tobytes()
-        if source_sr != self.target_sample_rate:
-            pcm16, _ = audioop.ratecv(pcm16, 2, 1, source_sr, self.target_sample_rate, None)
-        return pcm16
+        samples = tensor.detach().cpu().numpy().astype(np.float32)
+        samples = np.clip(samples, -1.0, 1.0)
+        samples = _resample_float32(samples, source_sr, self.target_sample_rate)
+        return (samples * 32767.0).astype(np.int16).tobytes()
 
     def synthesize(self, text: str) -> bytes:
         chunks = self._chunk_text(text)

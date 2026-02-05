@@ -40,6 +40,7 @@ npm run preview
    - `🎤 Start` para grabar
    - `⏹ Stop` para enviar el turno
 4. Si autoplay falla, usa `▶ Play last response`.
+5. Revisa los indicadores del panel de voz: `Audio backend`, `Autoplay` y `STT` para diagnóstico rápido.
 
 ## Notas kiosk
 - Recomendado Chrome en modo kiosk con permisos de micrófono preconcedidos.

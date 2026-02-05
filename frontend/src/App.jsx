@@ -87,9 +87,26 @@ function ChatScreen({ api, config, termsVersion, kioskAuthReady, botName }) {
   const [lastAudioBlob, setLastAudioBlob] = useState(null)
   const [showPlayLast, setShowPlayLast] = useState(false)
   const [voiceSupported, setVoiceSupported] = useState(true)
+  const [voiceDiag, setVoiceDiag] = useState({
+    hadAudio: false,
+    autoplayBlocked: false,
+    lastError: '',
+    sttMode: '-',
+    fallback: false,
+  })
 
   const chatLogRef = useRef(null)
   const seededRef = useRef(false)
+
+  const recorder = useAudioRecorder()
+  const online = navigator.onLine
+
+  useEffect(() => {
+    const supports = typeof window !== 'undefined'
+      && navigator?.mediaDevices?.getUserMedia
+      && typeof MediaRecorder !== 'undefined'
+    setVoiceSupported(Boolean(supports))
+  }, [])
 
   const recorder = useAudioRecorder()
   const online = navigator.onLine
@@ -141,14 +158,17 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
     setLog([buildWelcome()])
     setShowPlayLast(false)
     setLastAudioBlob(null)
+    setVoiceDiag({ hadAudio: false, autoplayBlocked: false, lastError: '', sttMode: '-', fallback: false })
   }
 
   async function tryPlayBotAudio(blob) {
     try {
       await playAudioFromBlob(blob)
       setShowPlayLast(false)
+      setVoiceDiag((d) => ({ ...d, autoplayBlocked: false, lastError: '' }))
     } catch {
       setShowPlayLast(true)
+      setVoiceDiag((d) => ({ ...d, autoplayBlocked: true, lastError: 'Autoplay bloqueado por el navegador.' }))
     }
   }
 
@@ -217,6 +237,14 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
         const userText = (resp.stt_text || '').trim() || '(no se detectó voz)'
         const botText = (resp.bot_text || '').trim() || '(sin respuesta)'
 
+        setVoiceDiag({
+          hadAudio: Boolean(resp.audio_wav_base64),
+          autoplayBlocked: false,
+          lastError: resp.audio_wav_base64 ? '' : 'El backend respondió sin audio_wav_base64.',
+          sttMode: resp.stt_mode_used || '-',
+          fallback: Boolean(resp.fallback_used),
+        })
+
         setLog((l) => [
           ...l,
           { who: 'Tú', text: userText, source: 'voice' },
@@ -232,7 +260,8 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
         await recorder.start()
       }
     } catch (e) {
-      setErr(String(e.message || e))
+      const msg = String(e.message || e)
+      setErr(msg)
     } finally {
       setVoiceBusy(false)
     }
@@ -245,7 +274,9 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
       await playAudioFromBlob(lastAudioBlob)
       setShowPlayLast(false)
     } catch (e) {
-      setErr(`No se pudo reproducir el último audio: ${String(e.message || e)}`)
+      const msg = `No se pudo reproducir el último audio: ${String(e.message || e)}`
+      setErr(msg)
+      setVoiceDiag((d) => ({ ...d, autoplayBlocked: true, lastError: msg }))
     }
   }
 
@@ -276,6 +307,13 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
           {recorder.state === 'recording' && <span>Recording… {fmtMs(recorder.elapsedMs)}</span>}
           {voiceBusy && <span>Processing…</span>}
           {!voiceBusy && recorder.state === 'idle' && <span>Turnos recomendados: 5–20s.</span>}
+        </div>
+
+        <div className="voiceDiag">
+          <span className={`diagPill ${voiceDiag.hadAudio ? 'ok' : 'warn'}`}>Audio backend: {voiceDiag.hadAudio ? 'sí' : 'no'}</span>
+          <span className={`diagPill ${voiceDiag.autoplayBlocked ? 'warn' : 'ok'}`}>Autoplay: {voiceDiag.autoplayBlocked ? 'bloqueado' : 'ok'}</span>
+          <span className="diagPill">STT: {voiceDiag.sttMode}{voiceDiag.fallback ? ' (fallback local)' : ''}</span>
+          {voiceDiag.lastError && <span className="diagPill warn">Detalle: {voiceDiag.lastError}</span>}
         </div>
 
         {showPlayLast && (
