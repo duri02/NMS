@@ -289,13 +289,9 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
 
 
 @app.post("/api/voice/turn")
-@app.post("/api/voice/turn/")
-@app.post("/voice/turn")
-@app.post("/voice/turn/")
 async def voice_turn(
     request: Request,
-    audio: Optional[UploadFile] = File(default=None, alias="audio"),
-    file: Optional[UploadFile] = File(default=None, alias="file"),
+    file: Optional[UploadFile] = File(default=None),
     include_audio: bool = Form(default=True),
     top_k: int = Form(default=settings.default_top_k),
 ):
@@ -324,11 +320,10 @@ async def voice_turn(
         except Exception as e:
             raise HTTPException(status_code=400, detail=f"JSON inválido para voz: {e}")
     else:
-        up = audio or file
-        if up is None:
-            raise HTTPException(status_code=400, detail="Debes enviar archivo de audio en multipart/form-data (campo audio).")
-        audio_bytes = await up.read()
-        source_name = up.filename or "audio.wav"
+        if file is None:
+            raise HTTPException(status_code=400, detail="Debes enviar archivo de audio en multipart/form-data.")
+        audio_bytes = await file.read()
+        source_name = file.filename or "audio.wav"
 
     if not audio_bytes:
         raise HTTPException(status_code=400, detail="Audio vacío.")
@@ -362,7 +357,6 @@ async def voice_turn(
 
 
 @app.post("/api/tts")
-@app.post("/tts")
 def tts(req: TTSRequest, request: Request):
     _ = _require_kiosk(request)
 

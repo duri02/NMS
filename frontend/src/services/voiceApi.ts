@@ -6,8 +6,6 @@ type VoiceTurnResponse = {
   stt_text: string
   bot_text: string
   audio_wav_base64?: string
-  stt_mode_used?: string
-  fallback_used?: boolean
 }
 
 type VoiceTurnParams = {
@@ -74,8 +72,6 @@ export async function sendVoiceTurn({
       stt_text: String(data?.stt_text || ''),
       bot_text: String(data?.bot_text || ''),
       audio_wav_base64: data?.audio_wav_base64 ? String(data.audio_wav_base64) : undefined,
-      stt_mode_used: data?.stt_mode_used ? String(data.stt_mode_used) : undefined,
-      fallback_used: Boolean(data?.fallback_used),
     }
   } catch (e: any) {
     if (e?.name === 'AbortError') {
