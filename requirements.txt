@@ -13,3 +13,4 @@ azure-cognitiveservices-speech>=1.38.0
 torch>=2.2.0
 numpy>=1.26.0
 soundfile>=0.12.1
+python-multipart>=0.0.9
