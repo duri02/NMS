@@ -108,6 +108,16 @@ function ChatScreen({ api, config, termsVersion, kioskAuthReady, botName }) {
     setVoiceSupported(Boolean(supports))
   }, [])
 
+  const recorder = useAudioRecorder()
+  const online = navigator.onLine
+
+  useEffect(() => {
+    const supports = typeof window !== 'undefined'
+      && navigator?.mediaDevices?.getUserMedia
+      && typeof MediaRecorder !== 'undefined'
+    setVoiceSupported(Boolean(supports))
+  }, [])
+
   useEffect(() => {
     if (seededRef.current) return
     setLog([buildWelcome()])
