@@ -146,14 +146,23 @@ ffmpeg -i input_audio.m4a -ac 1 -ar 16000 sample.wav
 ```bash
 cd frontend
 npm install
+copy .env.example .env
 copy public\kiosk-config.example.json public\kiosk-config.json
 # edita kiosk-config.json con apiBaseUrl, deviceId y kioskToken
+# opcional: VITE_BACKEND_URL en .env para endpoint de voz
 npm run dev
 ```
 
 Abre:
 - Front: http://localhost:5173
 - Docs backend: http://localhost:8000/docs
+
+### Voz en frontend
+- Botón `🎤 Start / ⏹ Stop` para turnos de voz (5–20s).
+- Envía multipart a `POST /api/voice/turn`.
+- Muestra `stt_text` y `bot_text` en el historial.
+- Reproduce audio TTS de respuesta; si autoplay falla, muestra botón `▶ Play last response`.
+- Recomendado Chrome/Edge con permisos de micrófono habilitados.
 
 ---
 

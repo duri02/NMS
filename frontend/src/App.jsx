@@ -1,9 +1,12 @@
-import React, { useEffect, useState, useRef } from 'react'
+import React, { useEffect, useMemo, useRef, useState } from 'react'
 import ReactMarkdown from 'react-markdown'
 import remarkGfm from 'remark-gfm'
 import { loadRuntimeConfig } from './config'
 import { makeApiClient } from './api'
 import { loadState, saveState, clearState } from './storage'
+import { useAudioRecorder } from './hooks/useAudioRecorder'
+import { sendVoiceTurn } from './services/voiceApi'
+import { base64ToBlob, blobToFile, playAudioFromBlob } from './utils/audio'
 
 function Header({ botName, kioskMeta, online }) {
   return (
@@ -68,15 +71,35 @@ function TermsScreen({ terms, accepted, setAccepted, loading, onContinue }) {
   )
 }
 
+function fmtMs(ms) {
+  const s = Math.max(0, Math.floor(ms / 1000))
+  const mm = String(Math.floor(s / 60)).padStart(2, '0')
+  const ss = String(s % 60).padStart(2, '0')
+  return `${mm}:${ss}`
+}
+
 function ChatScreen({ api, config, termsVersion, kioskAuthReady, botName }) {
   const [message, setMessage] = useState('')
   const [busy, setBusy] = useState(false)
+  const [voiceBusy, setVoiceBusy] = useState(false)
   const [err, setErr] = useState('')
   const [log, setLog] = useState([])
+  const [lastAudioBlob, setLastAudioBlob] = useState(null)
+  const [showPlayLast, setShowPlayLast] = useState(false)
+  const [voiceSupported, setVoiceSupported] = useState(true)
 
-
-  // Seed welcome message from /config (editable without redeploy)
+  const chatLogRef = useRef(null)
   const seededRef = useRef(false)
+
+  const recorder = useAudioRecorder()
+  const online = navigator.onLine
+
+  useEffect(() => {
+    const supports = typeof window !== 'undefined'
+      && navigator?.mediaDevices?.getUserMedia
+      && typeof MediaRecorder !== 'undefined'
+    setVoiceSupported(Boolean(supports))
+  }, [])
 
   useEffect(() => {
     if (seededRef.current) return
@@ -84,7 +107,23 @@ function ChatScreen({ api, config, termsVersion, kioskAuthReady, botName }) {
     seededRef.current = true
   }, [botName, config])
 
-  const online = navigator.onLine
+  useEffect(() => {
+    if (!chatLogRef.current) return
+    chatLogRef.current.scrollTop = chatLogRef.current.scrollHeight
+  }, [log, voiceBusy, recorder.elapsedMs])
+
+  useEffect(() => {
+    if (recorder.error) setErr(recorder.error)
+  }, [recorder.error])
+
+  const uiBusy = busy || voiceBusy || recorder.state === 'stopping'
+
+  const micLabel = useMemo(() => {
+    if (recorder.state === 'recording') return '⏹ Stop'
+    if (recorder.state === 'requesting') return '🎤 Permiso…'
+    if (recorder.state === 'stopping') return '⏳ Cerrando…'
+    return '🎤 Start'
+  }, [recorder.state])
 
   function buildWelcome() {
     const name = botName || 'NatuBot'
@@ -93,16 +132,27 @@ function ChatScreen({ api, config, termsVersion, kioskAuthReady, botName }) {
 Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
 
 ¿En qué puedo ayudarte hoy?`
-    return { who: name, text: welcome }
+    return { who: name, text: welcome, source: 'system' }
   }
 
   function clearChat() {
     setErr('')
     setMessage('')
     setLog([buildWelcome()])
+    setShowPlayLast(false)
+    setLastAudioBlob(null)
   }
 
-  async function send() {
+  async function tryPlayBotAudio(blob) {
+    try {
+      await playAudioFromBlob(blob)
+      setShowPlayLast(false)
+    } catch {
+      setShowPlayLast(true)
+    }
+  }
+
+  async function sendText() {
     setErr('')
     if (!online) {
       setErr(config?.offline_message || 'Sin internet. Este servicio no funciona sin conexión.')
@@ -117,7 +167,7 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
 
     setBusy(true)
     try {
-      setLog((l) => [...l, { who: 'Tú', text: q }])
+      setLog((l) => [...l, { who: 'Tú', text: q, source: 'text' }])
       setMessage('')
 
       const payload = {
@@ -128,7 +178,7 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
       }
 
       const res = await api.post('/chat', payload)
-      setLog((l) => [...l, { who: (botName || 'NatuBot'), text: res.answer || '(sin respuesta)' }])
+      setLog((l) => [...l, { who: (botName || 'NatuBot'), text: res.answer || '(sin respuesta)', source: 'text' }])
     } catch (e) {
       setErr(String(e.message || e))
     } finally {
@@ -136,27 +186,114 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
     }
   }
 
+  async function handleVoiceToggle() {
+    setErr('')
+
+    if (!voiceSupported) {
+      setErr('Tu navegador no soporta grabación de audio. Usa Chrome/Edge reciente.')
+      return
+    }
+    if (!online) {
+      setErr(config?.offline_message || 'Sin internet. Este servicio no funciona sin conexión.')
+      return
+    }
+    if (!kioskAuthReady) {
+      setErr('Este kiosco no está configurado. Revisa public/kiosk-config.json.')
+      return
+    }
+
+    try {
+      if (recorder.state === 'recording') {
+        setVoiceBusy(true)
+        const blob = await recorder.stop()
+        const file = blobToFile(blob, 'turn.webm')
+
+        const resp = await sendVoiceTurn({
+          audioFile: file,
+          includeAudio: true,
+        })
+
+        const userText = (resp.stt_text || '').trim() || '(no se detectó voz)'
+        const botText = (resp.bot_text || '').trim() || '(sin respuesta)'
+
+        setLog((l) => [
+          ...l,
+          { who: 'Tú', text: userText, source: 'voice' },
+          { who: (botName || 'NatuBot'), text: botText, source: 'voice' },
+        ])
+
+        if (resp.audio_wav_base64) {
+          const wavBlob = base64ToBlob(resp.audio_wav_base64, 'audio/wav')
+          setLastAudioBlob(wavBlob)
+          await tryPlayBotAudio(wavBlob)
+        }
+      } else {
+        await recorder.start()
+      }
+    } catch (e) {
+      setErr(String(e.message || e))
+    } finally {
+      setVoiceBusy(false)
+    }
+  }
+
+  async function playLastResponse() {
+    if (!lastAudioBlob) return
+    setErr('')
+    try {
+      await playAudioFromBlob(lastAudioBlob)
+      setShowPlayLast(false)
+    } catch (e) {
+      setErr(`No se pudo reproducir el último audio: ${String(e.message || e)}`)
+    }
+  }
+
   return (
     <div className="card">
       <div className="row" style={{ justifyContent: 'space-between' }}>
         <h2 style={{ margin: 0 }}>Chat</h2>
-        <button className="secondary" onClick={clearChat} disabled={busy}>Limpiar</button>
+        <button className="secondary" onClick={clearChat} disabled={uiBusy}>Limpiar</button>
       </div>
 
       <div className="small" style={{ marginTop: 6 }}>
         Nota: Este chat es informativo y no reemplaza a un profesional de salud.
+      </div>
+      <div className="small" style={{ marginTop: 6 }}>
+        Mic audio is processed to answer your question.
+      </div>
+
+      <div className="voicePanel">
+        <button
+          className={`voiceBtn ${recorder.state === 'recording' ? 'recording' : ''}`}
+          onClick={handleVoiceToggle}
+          disabled={uiBusy || recorder.state === 'requesting'}
+        >
+          {micLabel}
+        </button>
+
+        <div className="voiceMeta">
+          {recorder.state === 'recording' && <span>Recording… {fmtMs(recorder.elapsedMs)}</span>}
+          {voiceBusy && <span>Processing…</span>}
+          {!voiceBusy && recorder.state === 'idle' && <span>Turnos recomendados: 5–20s.</span>}
+        </div>
+
+        {showPlayLast && (
+          <button className="secondary" onClick={playLastResponse}>
+            ▶ Play last response
+          </button>
+        )}
       </div>
 
       <div className="hr" />
 
       {err && <div className="badge offline" style={{ marginBottom: 12 }}>{err}</div>}
 
-      <div className="chatlog">
+      <div className="chatlog" ref={chatLogRef}>
         {log.length === 0 ? (
           <div className="small">Escribe una pregunta para comenzar.</div>
         ) : (
           log.map((m, i) => {
-            const isUser = m.who === "Tú"
+            const isUser = m.who === 'Tú'
             return (
               <div key={i} className={`msgWrap ${isUser ? 'user' : 'bot'}`}>
                 {!isUser && (
@@ -165,6 +302,7 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
                 <div className={`msg ${isUser ? 'user' : 'bot'}`}>
                   <div className="who">{m.who}</div>
                   <div className="text">{m.text}</div>
+                  {m.source && m.source !== 'system' && <div className="msgSource">{m.source}</div>}
                 </div>
               </div>
             )
@@ -178,12 +316,12 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
         value={message}
         onChange={(e) => setMessage(e.target.value)}
         placeholder="Escribe tu pregunta..."
-        disabled={busy}
+        disabled={uiBusy}
       />
 
       <div className="row" style={{ justifyContent: 'space-between', marginTop: 10 }}>
         <div className="small">{config?.max_message_chars ? `Máx ${config.max_message_chars} caracteres.` : ''}</div>
-        <button onClick={send} disabled={busy || !message.trim()}>
+        <button onClick={sendText} disabled={uiBusy || !message.trim()}>
           {busy ? 'Enviando…' : 'Enviar'}
         </button>
       </div>
@@ -244,7 +382,6 @@ export default function App() {
     })()
   }, [api])
 
-  // Force re-accept if version changes
   useEffect(() => {
     if (!terms?.version) return
     const s = loadState()
