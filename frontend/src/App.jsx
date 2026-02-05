@@ -180,7 +180,8 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
       const res = await api.post('/chat', payload)
       setLog((l) => [...l, { who: (botName || 'NatuBot'), text: res.answer || '(sin respuesta)', source: 'text' }])
     } catch (e) {
-      setErr(String(e.message || e))
+      const msg = String(e.message || e)
+      setErr(msg)
     } finally {
       setBusy(false)
     }
