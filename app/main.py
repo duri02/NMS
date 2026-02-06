@@ -1,26 +1,28 @@
 from __future__ import annotations
 
+import base64
 import time
 import uuid
 from collections import defaultdict, deque
 from pathlib import Path
 from typing import Any, Dict, Optional
 
-from fastapi import FastAPI, HTTPException, Request
+from fastapi import FastAPI, File, Form, HTTPException, Request, UploadFile
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 from pydantic import BaseModel, Field
 
-from natubot_core.settings import get_settings, PROJECT_ROOT
+from app.speech import build_voice_pipeline
 from natubot_core.gemini_client import GeminiClient
+from natubot_core.kiosk_registry import get_kiosk_info, load_kiosk_registry, verify_kiosk
+from natubot_core.logging_utils import log_event, setup_json_logger
 from natubot_core.pinecone_client import PineconeClients
 from natubot_core.rag import answer_with_rag
-from natubot_core.kiosk_registry import load_kiosk_registry, verify_kiosk, get_kiosk_info
-from natubot_core.logging_utils import setup_json_logger, log_event
+from natubot_core.settings import PROJECT_ROOT, get_settings
 
 settings = get_settings()
 
-app = FastAPI(title="NatuBot Backend (Gemini + Pinecone)", version="0.6.0")
+app = FastAPI(title="NatuBot Backend (Gemini + Pinecone)", version="0.7.0")
 
 app.add_middleware(
     CORSMiddleware,
@@ -56,8 +58,18 @@ if not _log_dir.is_absolute():
     _log_dir = PROJECT_ROOT / _log_dir
 logger = setup_json_logger(_log_dir, level=settings.log_level)
 
+# Voice pipeline (lazy-safe to avoid breaking existing endpoints if models are missing)
+voice_pipeline = None
+voice_pipeline_error = ""
+try:
+    voice_pipeline = build_voice_pipeline(settings)
+except Exception as e:
+    voice_pipeline_error = str(e)
+    log_event(logger, {"event": "voice_pipeline_init_error", "error": voice_pipeline_error})
+
 # Rate limiting (in-memory; ok for MVP single instance)
 _rate_store = defaultdict(lambda: deque())
+
 
 class ChatRequest(BaseModel):
     message: str = Field(..., min_length=1, max_length=settings.max_message_chars)
@@ -67,13 +79,29 @@ class ChatRequest(BaseModel):
     top_k: int = Field(settings.default_top_k, ge=1, le=settings.max_top_k)
     pinecone_filter: Optional[Dict[str, Any]] = None
 
+
 class ChatResponse(BaseModel):
     answer: str
     citations: list
     used_context: bool
 
+
+class VoiceTurnJSONRequest(BaseModel):
+    audio_base64: str
+    filename: Optional[str] = "audio.wav"
+    include_audio: bool = True
+    top_k: int = Field(settings.default_top_k, ge=1, le=settings.max_top_k)
+    pinecone_filter: Optional[Dict[str, Any]] = None
+
+
+class TTSRequest(BaseModel):
+    text: str = Field(..., min_length=1, max_length=8000)
+    as_base64: bool = True
+
+
 def _device_id(request: Request) -> str:
     return (request.headers.get("x-device-id") or "").strip() or "unknown"
+
 
 def _token(request: Request) -> str:
     tok = (request.headers.get("x-kiosk-token") or "").strip()
@@ -83,6 +111,7 @@ def _token(request: Request) -> str:
     if auth.lower().startswith("bearer "):
         return auth.split(" ", 1)[1].strip()
     return ""
+
 
 def _require_kiosk(request: Request) -> Dict[str, Any]:
     did = _device_id(request)
@@ -98,6 +127,23 @@ def _require_kiosk(request: Request) -> Dict[str, Any]:
     if not verify_kiosk(did, tok, kiosk_registry):
         raise HTTPException(status_code=401, detail="Invalid kiosk credentials.")
     return {"device_id": did, "kiosk": get_kiosk_info(did, kiosk_registry) or {}, "auth_ok": True}
+
+
+def _chat_answer(question: str, *, top_k: int, pinecone_filter: Optional[Dict[str, Any]] = None) -> str:
+    q = (question or "").strip()
+    if not q:
+        return "No logré escuchar bien tu mensaje. ¿Podrías repetirlo, por favor?"
+    result = answer_with_rag(
+        question=q,
+        gemini=gemini,
+        pinecone=pinecone,
+        namespace=settings.pinecone_namespace,
+        top_k=top_k,
+        bot_name=settings.bot_name,
+        pinecone_filter=pinecone_filter,
+    )
+    return result["answer"]
+
 
 @app.middleware("http")
 async def logging_middleware(request: Request, call_next):
@@ -116,22 +162,26 @@ async def logging_middleware(request: Request, call_next):
     finally:
         elapsed_ms = int((time.time() - start) * 1000)
         kiosk_info = get_kiosk_info(did, kiosk_registry) or {}
-        log_event(logger, {
-            "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
-            "request_id": request_id,
-            "method": request.method,
-            "path": request.url.path,
-            "status": status,
-            "elapsed_ms": elapsed_ms,
-            "client_ip": client_ip,
-            "device_id": did,
-            "kiosk_location": kiosk_info.get("location"),
-            "kiosk_name": kiosk_info.get("name"),
-        })
+        log_event(
+            logger,
+            {
+                "ts": time.strftime("%Y-%m-%dT%H:%M:%S%z"),
+                "request_id": request_id,
+                "method": request.method,
+                "path": request.url.path,
+                "status": status,
+                "elapsed_ms": elapsed_ms,
+                "client_ip": client_ip,
+                "device_id": did,
+                "kiosk_location": kiosk_info.get("location"),
+                "kiosk_name": kiosk_info.get("name"),
+            },
+        )
+
 
 @app.middleware("http")
 async def rate_limit_middleware(request: Request, call_next):
-    if request.url.path != "/chat":
+    if request.url.path not in {"/chat", "/api/voice/turn"}:
         return await call_next(request)
 
     did = _device_id(request)
@@ -157,9 +207,11 @@ async def rate_limit_middleware(request: Request, call_next):
     dq.append(now)
     return await call_next(request)
 
+
 @app.get("/")
 def root():
     return {"ok": True, "message": "NatuBot backend running. See /docs, /terms, /config."}
+
 
 @app.get("/config")
 def get_config(request: Request):
@@ -176,10 +228,17 @@ def get_config(request: Request):
         "terms_version": settings.terms_version,
         "rate_limit_rpm": settings.rate_limit_rpm,
         "rate_limit_window_sec": settings.rate_limit_window_sec,
+        "speech": {
+            "stt_mode": settings.stt_mode,
+            "tts_mode": settings.tts_mode,
+            "vad_enabled": settings.vad_enabled,
+            "audio_sample_rate": settings.audio_sample_rate,
+        },
     }
     if info:
         payload["kiosk"] = {"device_id": did, "name": info.get("name"), "location": info.get("location")}
     return payload
+
 
 @app.get("/terms")
 def get_terms():
@@ -194,6 +253,7 @@ def get_terms():
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
 
+
 @app.get("/health")
 def health():
     # JSON-safe health check
@@ -202,6 +262,7 @@ def health():
         return {"ok": True, "pinecone_namespace": settings.pinecone_namespace}
     except Exception as e:
         return JSONResponse(status_code=500, content={"ok": False, "error": str(e)})
+
 
 @app.post("/chat", response_model=ChatResponse)
 def chat(req: ChatRequest, request: Request) -> ChatResponse:
@@ -225,3 +286,95 @@ def chat(req: ChatRequest, request: Request) -> ChatResponse:
         return ChatResponse(answer=result["answer"], citations=result["citations"], used_context=result["used_context"])
     except Exception as e:
         raise HTTPException(status_code=503, detail=f"No fue posible responder en este momento: {str(e)}")
+
+
+@app.post("/api/voice/turn")
+@app.post("/api/voice/turn/")
+@app.post("/voice/turn")
+@app.post("/voice/turn/")
+async def voice_turn(
+    request: Request,
+    audio: Optional[UploadFile] = File(default=None, alias="audio"),
+    file: Optional[UploadFile] = File(default=None, alias="file"),
+    include_audio: bool = Form(default=True),
+    top_k: int = Form(default=settings.default_top_k),
+):
+    _ = _require_kiosk(request)
+
+    if voice_pipeline is None:
+        raise HTTPException(status_code=503, detail=f"Voice pipeline no disponible: {voice_pipeline_error}")
+
+    ctype = (request.headers.get("content-type") or "").lower()
+
+    audio_bytes = b""
+    source_name = "audio.wav"
+    req_include_audio = include_audio
+    req_top_k = top_k
+    req_filter = None
+
+    if "application/json" in ctype:
+        try:
+            body = await request.body()
+            payload = VoiceTurnJSONRequest.model_validate_json(body)
+            audio_bytes = base64.b64decode(payload.audio_base64)
+            source_name = payload.filename or "audio.wav"
+            req_include_audio = payload.include_audio
+            req_top_k = payload.top_k
+            req_filter = payload.pinecone_filter
+        except Exception as e:
+            raise HTTPException(status_code=400, detail=f"JSON inválido para voz: {e}")
+    else:
+        up = audio or file
+        if up is None:
+            raise HTTPException(status_code=400, detail="Debes enviar archivo de audio en multipart/form-data (campo audio).")
+        audio_bytes = await up.read()
+        source_name = up.filename or "audio.wav"
+
+    if not audio_bytes:
+        raise HTTPException(status_code=400, detail="Audio vacío.")
+
+    try:
+        result = voice_pipeline.run_turn(
+            audio_bytes=audio_bytes,
+            source_name=source_name,
+            include_audio=req_include_audio,
+            chat_callable=lambda txt: _chat_answer(txt or "", top_k=req_top_k, pinecone_filter=req_filter),
+            logger=logger,
+        )
+        output = {
+            "stt_text": result.stt_text,
+            "bot_text": result.bot_text,
+            "stt_mode_used": result.stt_mode_used,
+            "fallback_used": result.fallback_used,
+            "latency_ms": {
+                "stt": result.stt_latency_ms,
+                "llm": result.llm_latency_ms,
+                "tts": result.tts_latency_ms,
+            },
+        }
+        if req_include_audio and result.audio_wav is not None:
+            output["audio_wav_base64"] = base64.b64encode(result.audio_wav).decode("utf-8")
+        if result.tts_error:
+            output["tts_error"] = result.tts_error
+        return output
+    except HTTPException:
+        raise
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"Error en pipeline de voz: {e}")
+
+
+@app.post("/api/tts")
+@app.post("/tts")
+def tts(req: TTSRequest, request: Request):
+    _ = _require_kiosk(request)
+
+    if voice_pipeline is None:
+        raise HTTPException(status_code=503, detail=f"Voice pipeline no disponible: {voice_pipeline_error}")
+
+    try:
+        wav_bytes = voice_pipeline.tts_engine.synthesize(req.text)
+        if req.as_base64:
+            return {"audio_wav_base64": base64.b64encode(wav_bytes).decode("utf-8")}
+        return JSONResponse(content={"audio_wav_base64": base64.b64encode(wav_bytes).decode("utf-8")})
+    except Exception as e:
+        raise HTTPException(status_code=503, detail=f"No fue posible sintetizar audio: {e}")
