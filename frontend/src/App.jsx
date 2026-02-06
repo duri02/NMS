@@ -174,7 +174,7 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
 
   async function sendText() {
     setErr('')
-    if (!online) {
+    if (!isOnline) {
       setErr(config?.offline_message || 'Sin internet. Este servicio no funciona sin conexión.')
       return
     }
