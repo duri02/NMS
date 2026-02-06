@@ -94,8 +94,11 @@ ELEVENLABS_API_KEY=
 ELEVENLABS_VOICE_ID=
 ```
 
-### Modo cloud con fallback
-Si `STT_MODE=azure` y Azure falla (red, timeout, credenciales), el backend hace fallback automático a `Vosk` y continúa el request.
+### Estrategia de fallback STT
+- `STT_MODE=local`: intenta `Vosk` primero (opción gratis) y, si falla y Azure está configurado, usa Azure como respaldo.
+- `STT_MODE=azure`: intenta Azure primero y, si falla, cae a `Vosk` si está disponible.
+
+> Recomendado para empezar gratis: mantener `STT_MODE=local` y configurar Azure más adelante como respaldo premium.
 
 ---
 

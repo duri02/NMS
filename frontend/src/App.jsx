@@ -99,17 +99,7 @@ function ChatScreen({ api, config, termsVersion, kioskAuthReady, botName }) {
   const seededRef = useRef(false)
 
   const recorder = useAudioRecorder()
-  const online = navigator.onLine
-
-  useEffect(() => {
-    const supports = typeof window !== 'undefined'
-      && navigator?.mediaDevices?.getUserMedia
-      && typeof MediaRecorder !== 'undefined'
-    setVoiceSupported(Boolean(supports))
-  }, [])
-
-  const recorder = useAudioRecorder()
-  const online = navigator.onLine
+  const isOnline = navigator.onLine
 
   useEffect(() => {
     const supports = typeof window !== 'undefined'
@@ -214,7 +204,7 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
       setErr('Tu navegador no soporta grabación de audio. Usa Chrome/Edge reciente.')
       return
     }
-    if (!online) {
+    if (!isOnline) {
       setErr(config?.offline_message || 'Sin internet. Este servicio no funciona sin conexión.')
       return
     }
@@ -240,7 +230,7 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
         setVoiceDiag({
           hadAudio: Boolean(resp.audio_wav_base64),
           autoplayBlocked: false,
-          lastError: resp.audio_wav_base64 ? '' : 'El backend respondió sin audio_wav_base64.',
+          lastError: resp.audio_wav_base64 ? '' : (resp.tts_error || 'El backend respondió sin audio_wav_base64.'),
           sttMode: resp.stt_mode_used || '-',
           fallback: Boolean(resp.fallback_used),
         })
