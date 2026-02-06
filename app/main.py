@@ -304,7 +304,6 @@ async def voice_turn(
     if voice_pipeline is None:
         raise HTTPException(status_code=503, detail=f"Voice pipeline no disponible: {voice_pipeline_error}")
 
-    body = await request.body()
     ctype = (request.headers.get("content-type") or "").lower()
 
     audio_bytes = b""
@@ -315,6 +314,7 @@ async def voice_turn(
 
     if "application/json" in ctype:
         try:
+            body = await request.body()
             payload = VoiceTurnJSONRequest.model_validate_json(body)
             audio_bytes = base64.b64decode(payload.audio_base64)
             source_name = payload.filename or "audio.wav"
