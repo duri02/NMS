@@ -8,7 +8,6 @@ type VoiceTurnResponse = {
   audio_wav_base64?: string
   stt_mode_used?: string
   fallback_used?: boolean
-  tts_error?: string
 }
 
 type VoiceTurnParams = {
@@ -77,7 +76,6 @@ export async function sendVoiceTurn({
       audio_wav_base64: data?.audio_wav_base64 ? String(data.audio_wav_base64) : undefined,
       stt_mode_used: data?.stt_mode_used ? String(data.stt_mode_used) : undefined,
       fallback_used: Boolean(data?.fallback_used),
-      tts_error: data?.tts_error ? String(data.tts_error) : undefined,
     }
   } catch (e: any) {
     if (e?.name === 'AbortError') {

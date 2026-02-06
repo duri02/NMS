@@ -354,8 +354,6 @@ async def voice_turn(
         }
         if req_include_audio and result.audio_wav is not None:
             output["audio_wav_base64"] = base64.b64encode(result.audio_wav).decode("utf-8")
-        if result.tts_error:
-            output["tts_error"] = result.tts_error
         return output
     except HTTPException:
         raise

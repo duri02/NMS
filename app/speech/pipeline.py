@@ -14,19 +14,11 @@ from .tts_silero import SileroTTS
 from .vad import VADConfig, trim_to_speech
 
 
-class _UnavailableTTS:
-    def __init__(self, reason: str):
-        self.reason = reason
-
-    def synthesize(self, text: str) -> bytes:
-        raise RuntimeError(self.reason)
-
-
 class STTRouter:
     def __init__(
         self,
         mode: str,
-        local_engine: Optional[STTEngine] = None,
+        local_engine: STTEngine,
         azure_engine: Optional[AzureSTT] = None,
     ):
         self.mode = (mode or "local").strip().lower()
@@ -35,40 +27,25 @@ class STTRouter:
 
     def transcribe(self, *, wav_bytes: bytes, pcm16_mono: bytes) -> Dict[str, Any]:
         fallback_used = False
+        mode_used = "local"
 
-        if self.mode == "azure":
-            if self.azure_engine is None:
-                if self.local_engine is None:
-                    raise RuntimeError("STT_MODE=azure pero no hay Azure configurado ni Vosk local disponible.")
-            else:
-                try:
-                    text = self.azure_engine.transcribe_wav_bytes(wav_bytes)
-                    return {
-                        "text": text,
-                        "stt_mode_used": "azure",
-                        "fallback_used": False,
-                    }
-                except Exception:
-                    fallback_used = True
-
-            if self.local_engine is None:
-                raise RuntimeError("Azure STT falló y no hay Vosk local para fallback.")
-
-            text = self.local_engine.transcribe(pcm16_mono)
-            return {
-                "text": text,
-                "stt_mode_used": "local",
-                "fallback_used": fallback_used,
-            }
-
-        if self.local_engine is None:
-            raise RuntimeError("STT local no disponible. Configura VOSK_MODEL_PATH o usa STT_MODE=azure con credenciales.")
+        if self.mode == "azure" and self.azure_engine is not None:
+            try:
+                text = self.azure_engine.transcribe_wav_bytes(wav_bytes)
+                mode_used = "azure"
+                return {
+                    "text": text,
+                    "stt_mode_used": mode_used,
+                    "fallback_used": False,
+                }
+            except Exception:
+                fallback_used = True
 
         text = self.local_engine.transcribe(pcm16_mono)
         return {
             "text": text,
-            "stt_mode_used": "local",
-            "fallback_used": False,
+            "stt_mode_used": mode_used,
+            "fallback_used": fallback_used,
         }
 
 
@@ -82,7 +59,6 @@ class VoicePipelineResult:
     stt_latency_ms: int
     llm_latency_ms: int
     tts_latency_ms: int
-    tts_error: Optional[str] = None
 
 
 class VoiceTurnPipeline:
@@ -115,13 +91,9 @@ class VoiceTurnPipeline:
 
         tts_latency_ms = 0
         wav_out = None
-        tts_error = None
         if include_audio:
             tts_start = time.time()
-            try:
-                wav_out = self.tts_engine.synthesize(bot_text)
-            except Exception as e:
-                tts_error = str(e)
+            wav_out = self.tts_engine.synthesize(bot_text)
             tts_latency_ms = int((time.time() - tts_start) * 1000)
 
         payload = {
@@ -131,7 +103,6 @@ class VoiceTurnPipeline:
             "stt_latency_ms": stt_latency_ms,
             "llm_latency_ms": llm_latency_ms,
             "tts_latency_ms": tts_latency_ms,
-            "tts_error": tts_error,
         }
         log_event(logger, payload)
 
@@ -144,19 +115,11 @@ class VoiceTurnPipeline:
             stt_latency_ms=stt_latency_ms,
             llm_latency_ms=llm_latency_ms,
             tts_latency_ms=tts_latency_ms,
-            tts_error=tts_error,
         )
 
 
 def build_voice_pipeline(settings) -> VoiceTurnPipeline:
-    local_stt: Optional[VoskSTT] = None
-    if settings.stt_mode == "local":
-        local_stt = VoskSTT(settings.vosk_model_path, sample_rate=settings.audio_sample_rate)
-    else:
-        try:
-            local_stt = VoskSTT(settings.vosk_model_path, sample_rate=settings.audio_sample_rate)
-        except Exception:
-            local_stt = None
+    local_stt = VoskSTT(settings.vosk_model_path, sample_rate=settings.audio_sample_rate)
 
     azure_engine = None
     if settings.stt_mode == "azure":
@@ -174,15 +137,12 @@ def build_voice_pipeline(settings) -> VoiceTurnPipeline:
     if settings.tts_mode != "silero":
         raise RuntimeError(f"TTS_MODE no soportado actualmente: {settings.tts_mode}")
 
-    try:
-        tts_engine = SileroTTS(
-            language=settings.silero_language,
-            speaker=settings.silero_speaker,
-            sample_rate=settings.audio_sample_rate,
-            chunk_chars=settings.tts_chunk_chars,
-        )
-    except Exception as e:
-        tts_engine = _UnavailableTTS(f"TTS no disponible: {e}")
+    tts_engine = SileroTTS(
+        language=settings.silero_language,
+        speaker=settings.silero_speaker,
+        sample_rate=settings.audio_sample_rate,
+        chunk_chars=settings.tts_chunk_chars,
+    )
 
     vad_cfg = VADConfig(
         enabled=settings.vad_enabled,
