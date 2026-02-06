@@ -99,7 +99,17 @@ function ChatScreen({ api, config, termsVersion, kioskAuthReady, botName }) {
   const seededRef = useRef(false)
 
   const recorder = useAudioRecorder()
-  const isOnline = navigator.onLine
+  const online = navigator.onLine
+
+  useEffect(() => {
+    const supports = typeof window !== 'undefined'
+      && navigator?.mediaDevices?.getUserMedia
+      && typeof MediaRecorder !== 'undefined'
+    setVoiceSupported(Boolean(supports))
+  }, [])
+
+  const recorder = useAudioRecorder()
+  const online = navigator.onLine
 
   useEffect(() => {
     const supports = typeof window !== 'undefined'
@@ -204,7 +214,7 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
       setErr('Tu navegador no soporta grabación de audio. Usa Chrome/Edge reciente.')
       return
     }
-    if (!isOnline) {
+    if (!online) {
       setErr(config?.offline_message || 'Sin internet. Este servicio no funciona sin conexión.')
       return
     }
