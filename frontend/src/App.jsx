@@ -188,7 +188,24 @@ Estoy aquí para ayudarte a conocer nuestros suplementos naturales.
       }
 
       const res = await api.post('/chat', payload)
-      setLog((l) => [...l, { who: (botName || 'NatuBot'), text: res.answer || '(sin respuesta)', source: 'text' }])
+      const botAnswer = res.answer || '(sin respuesta)'
+      setLog((l) => [...l, { who: (botName || 'NatuBot'), text: botAnswer, source: 'text' }])
+
+      try {
+        const ttsRes = await api.post('/api/tts', { text: botAnswer, as_base64: true })
+        const audioB64 = String(ttsRes?.audio_wav_base64 || '').trim()
+        if (audioB64) {
+          const wavBlob = base64ToBlob(audioB64, 'audio/wav')
+          setLastAudioBlob(wavBlob)
+          setVoiceDiag((d) => ({ ...d, hadAudio: true, lastError: '' }))
+          await tryPlayBotAudio(wavBlob)
+        } else {
+          setVoiceDiag((d) => ({ ...d, hadAudio: false, lastError: 'El backend /api/tts respondió sin audio_wav_base64.' }))
+        }
+      } catch (ttsErr) {
+        const ttsMsg = `TTS en chat texto no disponible: ${String(ttsErr?.message || ttsErr)}`
+        setVoiceDiag((d) => ({ ...d, hadAudio: false, lastError: ttsMsg }))
+      }
     } catch (e) {
       const msg = String(e.message || e)
       setErr(msg)
