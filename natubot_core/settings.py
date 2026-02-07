@@ -63,6 +63,26 @@ class Settings:
     log_dir: str = os.getenv("LOG_DIR", "logs")
     log_level: str = os.getenv("LOG_LEVEL", "INFO")
 
+    # Speech pipeline
+    stt_mode: str = os.getenv("STT_MODE", "local").strip().lower()
+    tts_mode: str = os.getenv("TTS_MODE", "silero").strip().lower()
+    azure_speech_key: str = os.getenv("AZURE_SPEECH_KEY", "")
+    azure_speech_region: str = os.getenv("AZURE_SPEECH_REGION", "")
+    azure_speech_language: str = os.getenv("AZURE_SPEECH_LANGUAGE", "es-ES")
+
+    models_dir: str = os.getenv("MODELS_DIR", "models")
+    vosk_model_path: str = os.getenv("VOSK_MODEL_PATH", "models/vosk-es")
+
+    audio_sample_rate: int = int(os.getenv("AUDIO_SAMPLE_RATE", "16000"))
+    vad_enabled: bool = _get_bool("VAD_ENABLED", "true")
+    vad_aggressiveness: int = int(os.getenv("VAD_AGGRESSIVENESS", "2"))
+    vad_frame_ms: int = int(os.getenv("VAD_FRAME_MS", "30"))
+    vad_end_silence_ms: int = int(os.getenv("VAD_END_SILENCE_MS", "800"))
+
+    silero_language: str = os.getenv("SILERO_LANGUAGE", "es")
+    silero_speaker: str = os.getenv("SILERO_SPEAKER", "v3_es")
+    tts_chunk_chars: int = int(os.getenv("TTS_CHUNK_CHARS", "700"))
+
 def get_settings() -> Settings:
     s = Settings()
     missing = []
@@ -75,4 +95,3 @@ def get_settings() -> Settings:
     if missing:
         raise RuntimeError(f"Missing required env vars: {', '.join(missing)}")
     return s
-
