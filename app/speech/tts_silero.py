@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import re
 from typing import List
 
 import numpy as np
@@ -41,6 +42,23 @@ class SileroTTS:
             speaker=speaker,
         )
 
+    @staticmethod
+    def _supported_speakers_from_error(err: Exception) -> List[str]:
+        msg = str(err)
+        # Supports errors like:
+        # - "`speaker` should be in es_0, es_1, es_2, random"
+        # - "Speaker not in the supported list ['v3_es', ...]"
+        m = re.search(r"should be in\s+(.+)$", msg)
+        if m:
+            raw = m.group(1)
+            return [s.strip(" '`\"[]") for s in raw.split(",") if s.strip()]
+
+        m = re.search(r"supported list\s*\[(.+)\]", msg)
+        if m:
+            raw = m.group(1)
+            return [s.strip(" '`\"") for s in raw.split(",") if s.strip()]
+        return []
+
     def _chunk_text(self, text: str) -> List[str]:
         text = (text or "").strip()
         if len(text) <= self.chunk_chars:
@@ -75,7 +93,15 @@ class SileroTTS:
 
         pcm_parts = []
         for piece in chunks:
-            audio = self.model.apply_tts(text=piece, speaker=self.speaker, sample_rate=48000)
+            try:
+                audio = self.model.apply_tts(text=piece, speaker=self.speaker, sample_rate=48000)
+            except Exception as e:
+                supported = self._supported_speakers_from_error(e)
+                if not supported:
+                    raise
+                fallback_speaker = supported[0]
+                audio = self.model.apply_tts(text=piece, speaker=fallback_speaker, sample_rate=48000)
+                self.speaker = fallback_speaker
             pcm_parts.append(self._tensor_to_pcm16(audio, source_sr=48000))
 
         merged_pcm = b"".join(pcm_parts)
