@@ -71,7 +71,7 @@ Tokens en `kiosks.json`.
 
 ### Variables de entorno de voz
 ```env
-STT_MODE=local                 # local | azure
+STT_MODE=local                 # local | azure | disabled
 TTS_MODE=silero                # preparado para futuro
 MODELS_DIR=models
 VOSK_MODEL_PATH=models/vosk-es
@@ -97,6 +97,7 @@ ELEVENLABS_VOICE_ID=
 ### Estrategia de fallback STT
 - `STT_MODE=local`: intenta `Vosk` primero (opción gratis) y, si falla y Azure está configurado, usa Azure como respaldo.
 - `STT_MODE=azure`: intenta Azure primero y, si falla, cae a `Vosk` si está disponible.
+- `STT_MODE=disabled`: desactiva STT y permite probar solo TTS en `/api/tts` (útil para ahorrar memoria durante pruebas).
 
 > Recomendado para empezar gratis: mantener `STT_MODE=local` y configurar Azure más adelante como respaldo premium.
 

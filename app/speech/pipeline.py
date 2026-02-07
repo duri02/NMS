@@ -36,6 +36,9 @@ class STTRouter:
     def transcribe(self, *, wav_bytes: bytes, pcm16_mono: bytes) -> Dict[str, Any]:
         fallback_used = False
 
+        if self.mode in {"off", "disabled", "none"}:
+            raise RuntimeError("STT está desactivado en configuración (STT_MODE=disabled).")
+
         if self.mode in {"local", "vosk"}:
             if self.local_engine is not None:
                 try:
@@ -166,13 +169,14 @@ class VoiceTurnPipeline:
 
 def build_voice_pipeline(settings) -> VoiceTurnPipeline:
     local_stt: Optional[VoskSTT] = None
-    try:
-        local_stt = VoskSTT(settings.vosk_model_path, sample_rate=settings.audio_sample_rate)
-    except Exception:
-        local_stt = None
+    if settings.stt_mode not in {"off", "disabled", "none"}:
+        try:
+            local_stt = VoskSTT(settings.vosk_model_path, sample_rate=settings.audio_sample_rate)
+        except Exception:
+            local_stt = None
 
     azure_engine = None
-    if settings.azure_speech_key and settings.azure_speech_region:
+    if settings.stt_mode not in {"off", "disabled", "none"} and settings.azure_speech_key and settings.azure_speech_region:
         try:
             azure_engine = AzureSTT(
                 key=settings.azure_speech_key,

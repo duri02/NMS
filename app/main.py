@@ -301,6 +301,12 @@ async def voice_turn(
 ):
     _ = _require_kiosk(request)
 
+    if settings.stt_mode in {"off", "disabled", "none"}:
+        raise HTTPException(
+            status_code=503,
+            detail="STT desactivado (STT_MODE=disabled). Usa /api/tts para probar solo síntesis de voz.",
+        )
+
     if voice_pipeline is None:
         raise HTTPException(status_code=503, detail=f"Voice pipeline no disponible: {voice_pipeline_error}")
 
